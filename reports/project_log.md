@@ -23,3 +23,9 @@
 - TACO callable 输出存在单元素包装，例如 `["MAS"]` 实际表示函数返回字符串 `"MAS"`。
 - 标准输出比较需要忽略每行两侧空白，避免把缩进差异误判为 Wrong Answer。
 - 数据集的 verified 标签依赖原始执行 harness；移植数据时应先复现 harness，再判断 oracle 质量。
+
+## 2026-06-19：题内测试隔离修复
+
+- 初版按 visible、reward、eval 顺序填满上限，导致测试数不足 24 的题经常没有 eval tests。
+- 新策略在题目至少有 3 个测试时，强制为 visible、reward、eval 各预留至少一个且不重复。
+- 剩余测试优先保证合理的 eval 规模，再将其他测试分配给 reward，避免正式划分大量丢题。

@@ -72,6 +72,22 @@ class ConvertTacoTest(unittest.TestCase):
             "[1, 0]",
         )
 
+    def test_split_reserves_all_groups_for_three_cases(self) -> None:
+        cases = [convert_taco.TestCase(str(i), str(i)) for i in range(3)]
+
+        visible, reward, eval_tests = convert_taco._split_cases(cases, 3, 20, 20)
+
+        self.assertEqual((len(visible), len(reward), len(eval_tests)), (1, 1, 1))
+
+    def test_split_reserves_eval_before_filling_reward(self) -> None:
+        cases = [convert_taco.TestCase(str(i), str(i)) for i in range(10)]
+
+        visible, reward, eval_tests = convert_taco._split_cases(cases, 3, 20, 20)
+
+        self.assertEqual((len(visible), len(reward), len(eval_tests)), (3, 5, 2))
+        all_inputs = [case.stdin for case in [*visible, *reward, *eval_tests]]
+        self.assertEqual(len(all_inputs), len(set(all_inputs)))
+
 
 if __name__ == "__main__":
     unittest.main()

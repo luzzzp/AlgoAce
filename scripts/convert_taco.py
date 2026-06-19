@@ -166,12 +166,25 @@ def _split_cases(
     max_reward: int,
     max_eval: int,
 ) -> tuple[list[TestCase], list[TestCase], list[TestCase]]:
-    visible_count = min(max_visible, len(cases))
+    total = len(cases)
+    if total >= 3 and max_reward > 0 and max_eval > 0:
+        visible_count = min(max_visible, total - 2)
+    else:
+        visible_count = min(max_visible, total)
     visible = _numbered(cases[:visible_count], "visible")
-    cursor = visible_count
-    reward = _numbered(cases[cursor : cursor + max_reward], "reward")
-    cursor += len(reward)
-    eval_tests = _numbered(cases[cursor : cursor + max_eval], "eval")
+    remaining = cases[visible_count:]
+    if len(remaining) >= 2 and max_reward > 0 and max_eval > 0:
+        desired_eval = min(max_eval, max(1, len(remaining) // 3))
+        reward_count = min(max_reward, len(remaining) - desired_eval)
+        eval_count = min(max_eval, len(remaining) - reward_count)
+    else:
+        reward_count = min(max_reward, len(remaining))
+        eval_count = min(max_eval, len(remaining) - reward_count)
+    reward = _numbered(remaining[:reward_count], "reward")
+    eval_tests = _numbered(
+        remaining[reward_count : reward_count + eval_count],
+        "eval",
+    )
     return visible, reward, eval_tests
 
 
