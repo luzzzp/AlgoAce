@@ -16,16 +16,21 @@ from algoace.schema import load_problems
 def main() -> None:
     parser = argparse.ArgumentParser(description="GRPO training with executable AlgoAce rewards.")
     parser.add_argument("--model", required=True)
+    parser.add_argument("--adapter", default="")
     parser.add_argument("--prompts", required=True)
     parser.add_argument("--problems", required=True)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--num-generations", type=int, default=4)
     parser.add_argument("--max-completion-length", type=int, default=2048)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--resume-from-checkpoint", action="store_true")
     args = parser.parse_args()
 
     try:
         from datasets import load_dataset
-        from peft import LoraConfig
+        import torch
+        from peft import LoraConfig, PeftModel
+        from transformers import AutoModelForCausalLM
         from trl import GRPOConfig, GRPOTrainer
     except ImportError as exc:
         raise SystemExit("Install requirements-train.txt before GRPO.") from exc
@@ -48,26 +53,37 @@ def main() -> None:
         "num_generations": args.num_generations,
         "logging_steps": 1,
         "save_steps": 50,
+        "seed": args.seed,
     }
     signature = inspect.signature(GRPOConfig)
     if "max_completion_length" in signature.parameters:
         config_kwargs["max_completion_length"] = args.max_completion_length
     config = GRPOConfig(**config_kwargs)
-    peft_config = LoraConfig(
-        r=16,
-        lora_alpha=32,
-        lora_dropout=0.05,
-        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
-        task_type="CAUSAL_LM",
-    )
+    if args.adapter:
+        base_model = AutoModelForCausalLM.from_pretrained(
+            args.model,
+            torch_dtype=torch.bfloat16,
+            trust_remote_code=True,
+        )
+        model = PeftModel.from_pretrained(base_model, args.adapter, is_trainable=True)
+        peft_config = None
+    else:
+        model = args.model
+        peft_config = LoraConfig(
+            r=16,
+            lora_alpha=32,
+            lora_dropout=0.05,
+            target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+            task_type="CAUSAL_LM",
+        )
     trainer = GRPOTrainer(
-        model=args.model,
+        model=model,
         reward_funcs=[executable_reward],
         args=config,
         train_dataset=dataset,
         peft_config=peft_config,
     )
-    trainer.train()
+    trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
     trainer.save_model(args.output_dir)
 
 
@@ -81,4 +97,3 @@ def _completion_text(completion) -> str:
 
 if __name__ == "__main__":
     main()
-

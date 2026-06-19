@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
+import random
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -10,7 +12,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from algoace.hf_model import HuggingFaceCodeModel
-from algoace.schema import SolveStatus, load_problems, result_to_dict
+from algoace.schema import SolveStatus, load_problems, problem_to_dict, result_to_dict
 from algoace.solver import AlgoAceSolver
 
 
@@ -23,13 +25,35 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--max-repair-turns", type=int, default=0)
     parser.add_argument("--candidates-per-turn", type=int, default=1)
-    parser.add_argument("--temperature", type=float, default=0.2)
+    parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--load-in-4bit", action="store_true")
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--split-name", default="test")
+    parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
 
     bundles = load_problems(args.problems)
     if args.limit:
         bundles = bundles[: args.limit]
+    split_metadata = _load_split_metadata(Path(args.problems))
+    if split_metadata and split_metadata.get("role") != args.split_name:
+        raise SystemExit(
+            f"Requested split-name={args.split_name!r} does not match dataset role="
+            f"{split_metadata.get('role')!r}."
+        )
+    run_identity = {
+        "model": args.model,
+        "adapter": args.adapter,
+        "problems": str(Path(args.problems).resolve()),
+        "split_name": args.split_name,
+        "dataset_fingerprint": dataset_fingerprint(bundles),
+        "split_metadata": split_metadata,
+        "seed": args.seed,
+        "temperature": args.temperature,
+        "max_repair_turns": args.max_repair_turns,
+        "candidates_per_turn": args.candidates_per_turn,
+    }
+    _set_seed(args.seed)
     model = HuggingFaceCodeModel(
         args.model,
         adapter_path=args.adapter,
@@ -41,27 +65,43 @@ def main() -> None:
         max_repair_turns=args.max_repair_turns,
         candidates_per_turn=args.candidates_per_turn,
     )
-    results = []
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    partial_path = out_path.with_suffix(out_path.suffix + ".partial.jsonl")
+    partial_meta_path = out_path.with_suffix(out_path.suffix + ".partial.meta.json")
+    if args.resume:
+        _validate_resume_identity(partial_meta_path, run_identity)
+    else:
+        partial_meta_path.write_text(
+            json.dumps(run_identity, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    completed = _load_partial(partial_path) if args.resume else {}
+    if not args.resume:
+        partial_path.write_text("", encoding="utf-8")
+    results_by_id = dict(completed)
     for index, bundle in enumerate(bundles, start=1):
+        if bundle.spec.id in completed:
+            print(f"[{index}/{len(bundles)}] {bundle.spec.id} resumed")
+            continue
+        _set_seed(problem_seed(args.seed, bundle.spec.id))
         result = solver.solve(bundle.spec, bundle.tests)
-        results.append(result_to_dict(result))
+        payload = result_to_dict(result)
+        results_by_id[bundle.spec.id] = payload
+        with partial_path.open("a", encoding="utf-8") as checkpoint:
+            checkpoint.write(json.dumps(payload, ensure_ascii=False) + "\n")
+            checkpoint.flush()
         print(
             f"[{index}/{len(bundles)}] {bundle.spec.id} "
             f"status={result.status.value} attempts={result.attempts}"
         )
 
+    results = [results_by_id[bundle.spec.id] for bundle in bundles if bundle.spec.id in results_by_id]
     report = {
-        "config": {
-            "model": args.model,
-            "adapter": args.adapter,
-            "max_repair_turns": args.max_repair_turns,
-            "candidates_per_turn": args.candidates_per_turn,
-        },
+        "config": run_identity,
         "metrics": metrics(results),
         "results": results,
     }
-    out_path = Path(args.out)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(report["metrics"], ensure_ascii=False, indent=2))
 
@@ -153,6 +193,72 @@ def _pass_rate(report: dict | None) -> float:
 
 def _mean(values) -> float:
     return sum(values) / len(values) if values else 0.0
+
+
+def problem_seed(base_seed: int, problem_id: str) -> int:
+    digest = hashlib.sha256(problem_id.encode("utf-8")).digest()
+    return (base_seed + int.from_bytes(digest[:4], "big")) % (2**31)
+
+
+def dataset_fingerprint(bundles) -> str:
+    records = [problem_to_dict(bundle) for bundle in sorted(bundles, key=lambda item: item.spec.id)]
+    payload = json.dumps(records, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _load_partial(path: Path) -> dict[str, dict]:
+    if not path.exists():
+        return {}
+    results = {}
+    with path.open(encoding="utf-8") as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if payload.get("problem_id"):
+                results[str(payload["problem_id"])] = payload
+    return results
+
+
+def _validate_resume_identity(path: Path, expected: dict) -> None:
+    if not path.exists():
+        raise SystemExit(f"Cannot resume without run identity file: {path}")
+    actual = json.loads(path.read_text(encoding="utf-8"))
+    if actual != expected:
+        mismatches = {
+            key: {"existing": actual.get(key), "requested": expected.get(key)}
+            for key in sorted(set(actual) | set(expected))
+            if actual.get(key) != expected.get(key)
+        }
+        raise SystemExit(f"Resume configuration mismatch: {json.dumps(mismatches, ensure_ascii=False)}")
+
+
+def _set_seed(seed: int) -> None:
+    random.seed(seed)
+    try:
+        import numpy as np
+
+        np.random.seed(seed % (2**32 - 1))
+    except ImportError:
+        pass
+    try:
+        import torch
+
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+    except ImportError:
+        pass
+
+
+def _load_split_metadata(path: Path) -> dict:
+    metadata_path = path / "_split_metadata.json"
+    if not metadata_path.exists():
+        return {}
+    return json.loads(metadata_path.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

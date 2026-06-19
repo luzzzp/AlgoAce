@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
+import tempfile
 import unittest
 
 from algoace.schema import OracleMetadata, OracleSolution, ProblemBundle, ProblemSpec, TestCase, TestSuite
@@ -29,7 +31,26 @@ class MakeCodeSftTest(unittest.TestCase):
         self.assertNotIn("Solution Explanation", record["output"])
         self.assertNotIn("Time Complexity", record["output"])
 
+    def test_rejects_test_split_for_training_data(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "_split_metadata.json").write_text(
+                json.dumps({"role": "test"}),
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(SystemExit):
+                make_code_sft._assert_training_split(root, allow_nontrain=False)
+
+    def test_resume_sidecar_consistency_is_detectable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "dataset.jsonl"
+            done = out.with_suffix(out.suffix + ".done.jsonl")
+            out.write_text("{}\n", encoding="utf-8")
+
+            with self.assertRaises(SystemExit):
+                make_code_sft._validate_resume_files(out, done, resume=True)
+
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -20,6 +20,8 @@ def main() -> None:
     parser.add_argument("--max-seq-length", type=int, default=4096)
     parser.add_argument("--epochs", type=float, default=2.0)
     parser.add_argument("--learning-rate", type=float, default=2e-4)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--resume-from-checkpoint", action="store_true")
     args = parser.parse_args()
 
     try:
@@ -30,6 +32,9 @@ def main() -> None:
     except ImportError as exc:
         raise SystemExit("Install requirements-train.txt before SFT.") from exc
 
+    from transformers import set_seed
+
+    set_seed(args.seed)
     dataset = load_dataset("json", data_files=args.dataset, split="train").map(
         lambda row: {"text": _format(row)}
     )
@@ -56,6 +61,7 @@ def main() -> None:
         args.max_seq_length,
         args.epochs,
         args.learning_rate,
+        args.seed,
     )
     trainer = SFTTrainer(
         **_trainer_kwargs(
@@ -67,7 +73,7 @@ def main() -> None:
             peft_config,
         )
     )
-    trainer.train()
+    trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
     trainer.save_model(args.output_dir)
 
 
@@ -79,7 +85,7 @@ def _format(row: dict[str, str]) -> str:
     )
 
 
-def _config(cls, output_dir: str, max_length: int, epochs: float, learning_rate: float):
+def _config(cls, output_dir: str, max_length: int, epochs: float, learning_rate: float, seed: int):
     signature = inspect.signature(cls)
     kwargs = {
         "output_dir": output_dir,
@@ -89,6 +95,7 @@ def _config(cls, output_dir: str, max_length: int, epochs: float, learning_rate:
         "num_train_epochs": epochs,
         "logging_steps": 10,
         "save_steps": 200,
+        "seed": seed,
     }
     if "max_seq_length" in signature.parameters:
         kwargs["max_seq_length"] = max_length

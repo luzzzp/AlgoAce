@@ -40,6 +40,52 @@ class PipelineSmokeTest(unittest.TestCase):
             )
             self.assertEqual(verify.returncode, 0, verify.stderr)
 
+            verify_resume = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/verify_oracles.py",
+                    "--problems",
+                    str(raw),
+                    "--out-dir",
+                    str(verified),
+                    "--resume",
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+            )
+            self.assertEqual(verify_resume.returncode, 0, verify_resume.stderr)
+            self.assertEqual(json.loads(verify_resume.stdout)["skipped_existing"], 1)
+
+            split_root = root / "split"
+            split = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/split_problems.py",
+                    "--problems",
+                    str(verified),
+                    "--out-dir",
+                    str(split_root),
+                    "--train-ratio",
+                    "0",
+                    "--dev-ratio",
+                    "0",
+                    "--test-ratio",
+                    "1",
+                    "--seed",
+                    "42",
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+            )
+            self.assertEqual(split.returncode, 0, split.stderr)
+            self.assertTrue((split_root / "test" / "sum.json").exists())
+            role = json.loads((split_root / "test" / "_split_metadata.json").read_text(encoding="utf-8"))
+            self.assertEqual(role["role"], "test")
+
             build = subprocess.run(
                 [
                     sys.executable,
@@ -60,6 +106,41 @@ class PipelineSmokeTest(unittest.TestCase):
             payload = json.loads(records[0])
             self.assertIn("```python", payload["output"])
             self.assertNotIn("Solution Explanation", payload["output"])
+
+            build_resume = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/make_code_sft.py",
+                    "--problems",
+                    str(verified),
+                    "--out",
+                    str(dataset),
+                    "--resume",
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+            )
+            self.assertEqual(build_resume.returncode, 0, build_resume.stderr)
+            self.assertEqual(len(dataset.read_text(encoding="utf-8").splitlines()), 1)
+
+            rejected = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/make_code_sft.py",
+                    "--problems",
+                    str(split_root / "test"),
+                    "--out",
+                    str(root / "forbidden.jsonl"),
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+            )
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn("Refusing to build training data", rejected.stderr)
 
 
 def _problem() -> dict:
@@ -97,4 +178,3 @@ def _problem() -> dict:
 
 if __name__ == "__main__":
     unittest.main()
-

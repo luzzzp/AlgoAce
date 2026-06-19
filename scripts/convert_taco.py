@@ -32,6 +32,7 @@ def main() -> None:
     parser.add_argument("--max-visible-tests", type=int, default=3)
     parser.add_argument("--max-reward-tests", type=int, default=20)
     parser.add_argument("--max-eval-tests", type=int, default=20)
+    parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
 
     try:
@@ -43,13 +44,20 @@ def main() -> None:
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     skipped_path = out_dir / "_skipped.jsonl"
-    written = 0
+    done_path = out_dir / "_convert_done.jsonl"
+    done_indices = _load_done_indices(done_path) if args.resume else set()
+    new_written = 0
+    skipped_existing = 0
     skipped = Counter()
 
-    with skipped_path.open("w", encoding="utf-8") as failure_log:
+    mode = "a" if args.resume else "w"
+    with skipped_path.open(mode, encoding="utf-8") as failure_log, done_path.open(mode, encoding="utf-8") as done_log:
         for index, row in enumerate(dataset):
             if args.limit and index >= args.limit:
                 break
+            if index in done_indices:
+                skipped_existing += 1
+                continue
             try:
                 bundle = convert_row(
                     row,
@@ -59,10 +67,12 @@ def main() -> None:
                     args.max_eval_tests,
                 )
                 save_problem(bundle, out_dir / f"{bundle.spec.id}.json")
-                written += 1
+                new_written += 1
+                status = "written"
             except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
                 reason = str(exc)
                 skipped[reason] += 1
+                status = "skipped"
                 failure_log.write(
                     json.dumps(
                         {
@@ -74,12 +84,18 @@ def main() -> None:
                     )
                     + "\n"
                 )
+            done_log.write(json.dumps({"index": index, "status": status}) + "\n")
+            failure_log.flush()
+            done_log.flush()
 
+    written_total = len([path for path in out_dir.glob("*.json") if not path.name.startswith("_")])
     report = {
         "stage": "convert_taco",
         "dataset": args.dataset,
         "split": args.split,
-        "written": written,
+        "written": written_total,
+        "new_written": new_written,
+        "skipped_existing": skipped_existing,
         "skipped": sum(skipped.values()),
         "skip_reasons": dict(skipped),
     }
@@ -223,6 +239,22 @@ def _safe_id(index: int, name: str) -> str:
     return f"taco_{index}_{slug or 'problem'}"
 
 
+def _load_done_indices(path: Path) -> set[int]:
+    if not path.exists():
+        return set()
+    indices = set()
+    with path.open(encoding="utf-8") as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload.get("index"), int):
+                indices.add(payload["index"])
+    return indices
+
+
 if __name__ == "__main__":
     main()
-

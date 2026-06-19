@@ -15,6 +15,7 @@ from algoace.schema import (
     OracleMetadata,
     OracleSolution,
     ProblemBundle,
+    load_problem,
     load_problems,
     save_problem,
 )
@@ -25,6 +26,7 @@ def main() -> None:
     parser.add_argument("--problems", required=True)
     parser.add_argument("--out-dir", required=True)
     parser.add_argument("--max-solutions-per-problem", type=int, default=3)
+    parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
 
     bundles = load_problems(args.problems)
@@ -35,18 +37,30 @@ def main() -> None:
     verified = 0
     failed = 0
     no_solution = 0
+    processed_new = 0
+    skipped_existing = 0
 
-    with failed_path.open("w", encoding="utf-8") as failed_log:
+    failed_mode = "a" if args.resume else "w"
+    with failed_path.open(failed_mode, encoding="utf-8") as failed_log:
         for bundle in bundles:
-            updated, detail = verify_bundle(bundle, executor, args.max_solutions_per_problem)
-            save_problem(updated, out_dir / f"{bundle.spec.id}.json")
+            target = out_dir / f"{bundle.spec.id}.json"
+            if args.resume and target.exists():
+                updated = load_problem(target)
+                detail = None
+                skipped_existing += 1
+            else:
+                updated, detail = verify_bundle(bundle, executor, args.max_solutions_per_problem)
+                save_problem(updated, target)
+                processed_new += 1
             if updated.oracle.best_verified():
                 verified += 1
             elif not bundle.oracle.solutions:
                 no_solution += 1
             else:
                 failed += 1
-                failed_log.write(json.dumps(detail, ensure_ascii=False) + "\n")
+                if detail is not None:
+                    failed_log.write(json.dumps(detail, ensure_ascii=False) + "\n")
+                    failed_log.flush()
     for manifest in Path(args.problems).glob("_*.json"):
         if manifest.name != "_failed.jsonl":
             shutil.copy2(manifest, out_dir / manifest.name)
@@ -57,6 +71,8 @@ def main() -> None:
         "verified": verified,
         "failed": failed,
         "no_solution": no_solution,
+        "processed_new": processed_new,
+        "skipped_existing": skipped_existing,
         "failed_log": "_failed.jsonl",
     }
     (out_dir / "_verify_manifest.json").write_text(
@@ -123,4 +139,3 @@ def _first_failed(report) -> dict | None:
 
 if __name__ == "__main__":
     main()
-

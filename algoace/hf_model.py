@@ -18,7 +18,7 @@ class HuggingFaceCodeModel:
         model_name_or_path: str,
         adapter_path: str = "",
         max_new_tokens: int = 2048,
-        temperature: float = 0.2,
+        temperature: float = 0.0,
         load_in_4bit: bool = False,
     ):
         try:
@@ -76,4 +76,3 @@ class HuggingFaceCodeModel:
 def extract_python_code(text: str) -> str:
     match = re.search(r"```(?:python|py)\s*(.*?)```", text, flags=re.I | re.S)
     return match.group(1).strip() if match else ""
-
