@@ -126,7 +126,7 @@ def convert_row(
     cases = [
         TestCase(
             stdin=_input_text(item, io_mode),
-            expected_stdout=_output_text(expected, io_mode),
+            expected_stdout=_output_text(expected, io_mode, unwrap_singleton=True),
         )
         for item, expected in zip(inputs, outputs)
     ]
@@ -201,9 +201,11 @@ def _input_text(value: Any, io_mode: str) -> str:
     return str(value).rstrip() + "\n"
 
 
-def _output_text(value: Any, io_mode: str) -> str:
+def _output_text(value: Any, io_mode: str, unwrap_singleton: bool = False) -> str:
     if io_mode == "callable":
-        return json.dumps(value, ensure_ascii=False)
+        if unwrap_singleton and isinstance(value, list) and len(value) == 1:
+            value = value[0]
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
     if isinstance(value, list):
         return "\n".join(str(item) for item in value)
     return str(value)

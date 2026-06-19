@@ -15,3 +15,11 @@
 - visible tests 可反馈具体反例；reward tests 仅反馈抽象失败；eval tests 最终只执行一次。
 - 转换、oracle 验证、SFT/GRPO 数据生成和评测支持断点续跑。
 - 评测按 problem id 独立设随机种子，保证中断恢复不改变剩余样本的生成结果。
+
+## 2026-06-19：TACO Callable Harness 修复
+
+- 100 题 oracle 初次验证为 81/100，失败中 18 题来自 callable harness，只有 1 题来自 stdin 空白差异。
+- callable 解法可能把入口方法定义在 `class Solution` 中，不能只查找全局函数。
+- TACO callable 输出存在单元素包装，例如 `["MAS"]` 实际表示函数返回字符串 `"MAS"`。
+- 标准输出比较需要忽略每行两侧空白，避免把缩进差异误判为 Wrong Answer。
+- 数据集的 verified 标签依赖原始执行 harness；移植数据时应先复现 harness，再判断 oracle 质量。

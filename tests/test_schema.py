@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from algoace.schema import ProblemBundle, ProblemSpec, TestCase, TestSuite, load_problem, save_problem
+from algoace.schema import ProblemBundle, ProblemSpec, TestCase, TestSuite, load_problem, normalize_output, save_problem
 
 
 class SchemaTest(unittest.TestCase):
@@ -35,7 +35,9 @@ class SchemaTest(unittest.TestCase):
         self.assertEqual(loaded.spec.id, "sum")
         self.assertEqual(loaded.tests.visible_tests[0].expected_stdout, "3\n")
 
+    def test_normalize_output_ignores_line_edge_whitespace(self) -> None:
+        self.assertEqual(normalize_output("        0\n        3\n"), "0\n3")
+
 
 if __name__ == "__main__":
     unittest.main()
-

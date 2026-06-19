@@ -45,7 +45,14 @@ class ExecutorTest(unittest.TestCase):
         )
         self.assertTrue(result.all_passed)
 
+    def test_executes_solution_class_entry_point(self) -> None:
+        result = PythonExecutor().evaluate(
+            "class Solution:\n    def add(self, a, b):\n        return a + b",
+            [TestCase("[2, 3]", "5", "visible-0001")],
+            entry_point="add",
+        )
+        self.assertTrue(result.all_passed)
+
 
 if __name__ == "__main__":
     unittest.main()
-

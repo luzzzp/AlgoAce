@@ -51,7 +51,27 @@ class ConvertTacoTest(unittest.TestCase):
         self.assertEqual(bundle.spec.entry_point, "add")
         self.assertEqual(bundle.tests.visible_tests[0].stdin, "[2, 3]")
 
+    def test_callable_output_unwraps_singleton_wrapper(self) -> None:
+        row = {
+            "question": "Create an acronym.",
+            "input_output": {
+                "fn_name": "make_acronym",
+                "inputs": [["My Amazing Story"], ["Portable Network Graphics"], ["Away From Keyboard"]],
+                "outputs": [["MAS"], ["PNG"], ["AFK"]],
+            },
+            "solutions": ["def make_acronym(text): return ''.join(x[0] for x in text.split())"],
+        }
+
+        bundle = convert_taco.convert_row(row, 2, 1, 1, 1)
+
+        self.assertEqual(bundle.tests.visible_tests[0].expected_stdout, '"MAS"')
+
+    def test_callable_output_keeps_non_singleton_list(self) -> None:
+        self.assertEqual(
+            convert_taco._output_text([1, 0], "callable", unwrap_singleton=True),
+            "[1, 0]",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
-
