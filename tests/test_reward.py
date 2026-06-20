@@ -49,6 +49,28 @@ class RewardTest(unittest.TestCase):
         self.assertEqual(reward.reward_tests, 0.0)
         self.assertLess(reward.total, 0.5)
 
+    def test_legitimate_literal_output_is_not_mistaken_for_hardcoding(self) -> None:
+        bundle = ProblemBundle(
+            ProblemSpec(id="positive", statement="Print YES for positive integers."),
+            TestSuite(
+                visible_tests=[TestCase("1\n", "YES\n", "visible-0001")],
+                reward_tests=[TestCase("2\n", "YES\n", "reward-0001")],
+            ),
+        )
+        reward = score_completion(
+            '```python\nn=int(input())\nprint("YES" if n > 0 else "NO")\n```',
+            bundle,
+        )
+
+        self.assertNotIn("possible_sample_hardcode", reward.reasons)
+        self.assertEqual(reward.total, 1.0)
+
+    def test_program_that_never_reads_stdin_is_penalized(self) -> None:
+        reward = score_completion("```python\nprint(5)\n```", _bundle())
+
+        self.assertIn("possible_sample_hardcode", reward.reasons)
+        self.assertLess(reward.total, 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()

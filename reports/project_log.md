@@ -62,3 +62,12 @@
 - temperature 0.2 的 best-of-4 将 verified success rate 从 22% 提升至 26%，visible pass@4 为 31%。
 - pass@4 仅比 pass@1 visible success 27% 高 4 个百分点，说明候选高度相关，低温采样多样性不足。
 - 新增 `top_p` 采样参数与 `reward_rerank` 消融：reward tests 只用于内部候选排序，不向模型泄漏测试内容；eval tests 仍只运行最终候选一次。
+
+## 2026-06-21：执行奖励驱动的后训练主线
+
+- SFT 负向消融后，将核心训练方法改为从 Base 直接进行 GRPO，不沿用退化 adapter。
+- Reward 重新归一到 1.0：语法 0.05、可见测试 0.15、隐藏 reward tests 0.60、全部通过奖励 0.20；超时、运行错误、无输入硬编码和超长输出单独惩罚。
+- 删除“答案字符串出现在代码中即硬编码”的误判规则，避免惩罚合法的 `print("YES")` 等程序。
+- GRPO prompt 改为与推理一致的 system/user chat 模板，随机抽取且要求至少 5 个 reward tests。
+- 200 题 smoke 使用 4 个 generation、25 个更新步、`1e-6` 学习率和 `beta=0.04` KL 约束；reward tests 4 路并行执行。
+- 新增 reward 审计与训练日志汇总，重点监控 oracle/bad 排序、零方差 group、完整通过率、超时和硬编码惩罚，防止 reward hacking。

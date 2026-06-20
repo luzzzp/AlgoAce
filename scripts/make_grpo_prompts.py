@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import random
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -10,6 +11,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from algoace.context import CODE_OUTPUT_RULE
+from algoace.hf_model import SYSTEM_PROMPT
 from algoace.schema import load_problems
 
 
@@ -18,6 +20,8 @@ def main() -> None:
     parser.add_argument("--problems", required=True)
     parser.add_argument("--out", required=True)
     parser.add_argument("--limit", type=int, default=0)
+    parser.add_argument("--min-reward-tests", type=int, default=5)
+    parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--allow-nontrain-split", action="store_true")
     args = parser.parse_args()
@@ -26,8 +30,13 @@ def main() -> None:
     all_bundles = [
         bundle for bundle in load_problems(args.problems) if bundle.oracle.best_verified()
     ]
-    bundles = [bundle for bundle in all_bundles if bundle.tests.reward_tests]
+    bundles = [
+        bundle
+        for bundle in all_bundles
+        if len(bundle.tests.reward_tests) >= args.min_reward_tests
+    ]
     skipped_missing_reward = len(all_bundles) - len(bundles)
+    random.Random(args.seed).shuffle(bundles)
     if args.limit:
         bundles = bundles[: args.limit]
     out_path = Path(args.out)
@@ -41,10 +50,7 @@ def main() -> None:
                 continue
             handle.write(
                 json.dumps(
-                    {
-                        "problem_id": bundle.spec.id,
-                        "prompt": f"{bundle.spec.prompt(bundle.tests.visible_tests)}\n\n{CODE_OUTPUT_RULE}",
-                    },
+                    _record(bundle),
                     ensure_ascii=False,
                 )
                 + "\n"
@@ -55,9 +61,27 @@ def main() -> None:
         "stage": "make_grpo_prompts",
         "records": _count_lines(out_path),
         "new_records": written,
-        "skipped_missing_reward_tests": skipped_missing_reward,
+        "skipped_insufficient_reward_tests": skipped_missing_reward,
+        "min_reward_tests": args.min_reward_tests,
+        "seed": args.seed,
         "out": str(out_path),
     }, indent=2))
+
+
+def _record(bundle) -> dict:
+    return {
+        "problem_id": bundle.spec.id,
+        "prompt": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": (
+                    f"{bundle.spec.prompt(bundle.tests.visible_tests)}"
+                    f"\n\n{CODE_OUTPUT_RULE}"
+                ),
+            },
+        ],
+    }
 
 
 def _load_prompt_ids(path: Path) -> set[str]:

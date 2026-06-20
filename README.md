@@ -111,8 +111,10 @@ python scripts/make_code_sft.py \
 
 python scripts/make_grpo_prompts.py \
   --problems /root/autodl-tmp/algoace/data/taco_split/train \
-  --out /root/autodl-tmp/algoace/data/grpo_prompts_200.jsonl \
+  --out /root/autodl-tmp/algoace/data/grpo_prompts_200_v2.jsonl \
   --limit 200 \
+  --min-reward-tests 5 \
+  --seed 42 \
   --resume
 
 python scripts/audit_training_data.py \
@@ -149,12 +151,16 @@ SFT 只对 assistant 的 Python 代码计算 loss。若题面过长，训练脚�
 ```bash
 python training/grpo_train.py \
   --model Qwen/Qwen2.5-Coder-7B-Instruct \
-  --adapter /root/autodl-tmp/algoace/outputs/qwen25-coder-7b-code-sft \
-  --prompts /root/autodl-tmp/algoace/data/grpo_prompts_200.jsonl \
+  --prompts /root/autodl-tmp/algoace/data/grpo_prompts_200_v2.jsonl \
   --problems /root/autodl-tmp/algoace/data/taco_split/train \
-  --output-dir /root/autodl-tmp/algoace/outputs/qwen25-coder-7b-grpo \
+  --output-dir /root/autodl-tmp/algoace/outputs/qwen25-coder-7b-grpo-smoke \
+  --reward-log /root/autodl-tmp/algoace/reports/grpo-smoke-rewards.jsonl \
   --num-generations 4 \
-  --max-completion-length 2048 \
+  --max-completion-length 1024 \
+  --learning-rate 1e-6 \
+  --beta 0.04 \
+  --max-steps 25 \
+  --reward-workers 4 \
   --seed 42
 ```
 
