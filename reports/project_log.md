@@ -29,3 +29,9 @@
 - 初版按 visible、reward、eval 顺序填满上限，导致测试数不足 24 的题经常没有 eval tests。
 - 新策略在题目至少有 3 个测试时，强制为 visible、reward、eval 各预留至少一个且不重复。
 - 剩余测试优先保证合理的 eval 规模，再将其他测试分配给 reward，避免正式划分大量丢题。
+
+## 2026-06-20：训练数据与 Benchmark 资格分离
+
+- 100 题中有 34 题原始测试少于 3 个，无法同时构造 visible/reward/eval，但 oracle 均已验证。
+- 这些题不进入 dev/test benchmark，但追加到 train 用于 Code SFT，避免浪费正确代码数据。
+- 只有具备完整三组测试的题参与严格 dev/test 划分；GRPO prompts 自动跳过缺少 reward tests 的训练题。

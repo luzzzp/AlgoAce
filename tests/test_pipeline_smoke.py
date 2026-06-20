@@ -58,6 +58,16 @@ class PipelineSmokeTest(unittest.TestCase):
             self.assertEqual(verify_resume.returncode, 0, verify_resume.stderr)
             self.assertEqual(json.loads(verify_resume.stdout)["skipped_existing"], 1)
 
+            training_only = _problem()
+            training_only["problem"]["id"] = "training_only"
+            training_only["tests"]["reward_tests"] = []
+            training_only["tests"]["eval_tests"] = []
+            training_only["oracle"]["solutions"][0]["verified"] = True
+            (verified / "training_only.json").write_text(
+                json.dumps(training_only, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
             split_root = root / "split"
             split = subprocess.run(
                 [
@@ -83,8 +93,15 @@ class PipelineSmokeTest(unittest.TestCase):
             )
             self.assertEqual(split.returncode, 0, split.stderr)
             self.assertTrue((split_root / "test" / "sum.json").exists())
+            self.assertTrue((split_root / "train" / "training_only.json").exists())
+            self.assertFalse((split_root / "dev" / "training_only.json").exists())
+            self.assertFalse((split_root / "test" / "training_only.json").exists())
             role = json.loads((split_root / "test" / "_split_metadata.json").read_text(encoding="utf-8"))
             self.assertEqual(role["role"], "test")
+            train_role = json.loads(
+                (split_root / "train" / "_split_metadata.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(train_role["training_only_count"], 1)
 
             build = subprocess.run(
                 [
@@ -102,7 +119,7 @@ class PipelineSmokeTest(unittest.TestCase):
             )
             self.assertEqual(build.returncode, 0, build.stderr)
             records = dataset.read_text(encoding="utf-8").splitlines()
-            self.assertEqual(len(records), 1)
+            self.assertEqual(len(records), 2)
             payload = json.loads(records[0])
             self.assertIn("```python", payload["output"])
             self.assertNotIn("Solution Explanation", payload["output"])
@@ -123,7 +140,7 @@ class PipelineSmokeTest(unittest.TestCase):
                 encoding="utf-8",
             )
             self.assertEqual(build_resume.returncode, 0, build_resume.stderr)
-            self.assertEqual(len(dataset.read_text(encoding="utf-8").splitlines()), 1)
+            self.assertEqual(len(dataset.read_text(encoding="utf-8").splitlines()), 2)
 
             rejected = subprocess.run(
                 [

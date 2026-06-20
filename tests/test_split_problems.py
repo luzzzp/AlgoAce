@@ -54,6 +54,15 @@ class SplitProblemsTest(unittest.TestCase):
         self.assertTrue(split_problems._has_all_test_groups(complete))
         self.assertFalse(split_problems._has_all_test_groups(incomplete))
 
+    def test_training_only_ids_can_be_added_without_dev_test_overlap(self) -> None:
+        benchmark_ids = [f"p{i}" for i in range(10)]
+        splits = split_problems.split_problem_ids(benchmark_ids, 0.8, 0.1)
+        splits["train"] = sorted([*splits["train"], "training-only"])
+
+        self.assertIn("training-only", splits["train"])
+        self.assertNotIn("training-only", splits["dev"])
+        self.assertNotIn("training-only", splits["test"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -23,7 +23,11 @@ def main() -> None:
     args = parser.parse_args()
 
     _assert_training_split(Path(args.problems), args.allow_nontrain_split)
-    bundles = [bundle for bundle in load_problems(args.problems) if bundle.oracle.best_verified()]
+    all_bundles = [
+        bundle for bundle in load_problems(args.problems) if bundle.oracle.best_verified()
+    ]
+    bundles = [bundle for bundle in all_bundles if bundle.tests.reward_tests]
+    skipped_missing_reward = len(all_bundles) - len(bundles)
     if args.limit:
         bundles = bundles[: args.limit]
     out_path = Path(args.out)
@@ -51,6 +55,7 @@ def main() -> None:
         "stage": "make_grpo_prompts",
         "records": _count_lines(out_path),
         "new_records": written,
+        "skipped_missing_reward_tests": skipped_missing_reward,
         "out": str(out_path),
     }, indent=2))
 

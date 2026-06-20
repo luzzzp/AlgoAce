@@ -96,7 +96,7 @@ python scripts/split_problems.py \
 ```
 
 同一道题完整进入一个 split。`test/` 不得参与 SFT、GRPO、阈值调整或 prompt 修改。
-划分脚本默认排除没有 verified oracle 或缺少 visible/reward/eval 任一测试组的题，确保正式 benchmark 的成功定义一致。
+划分脚本默认排除没有 verified oracle 的题。缺少完整测试组的 verified 题只追加到 train，不进入 dev/test，既保留 SFT 数据量，又确保正式 benchmark 的成功定义一致。
 每个 split 会写 `_split_metadata.json`；训练数据脚本检测到 dev/test 角色时会直接拒绝，防止误用测试集。
 
 ### 3. 训练数据

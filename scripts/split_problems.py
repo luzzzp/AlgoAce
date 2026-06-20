@@ -36,17 +36,25 @@ def main() -> None:
         if args.include_unverified
         else [bundle for bundle in all_bundles if bundle.oracle.best_verified()]
     )
-    bundles = (
-        verified_bundles
-        if args.allow_missing_test_groups
-        else [bundle for bundle in verified_bundles if _has_all_test_groups(bundle)]
-    )
-    if not bundles:
+    if args.allow_missing_test_groups:
+        benchmark_bundles = verified_bundles
+        training_only_bundles = []
+    else:
+        benchmark_bundles = [
+            bundle for bundle in verified_bundles if _has_all_test_groups(bundle)
+        ]
+        training_only_bundles = [
+            bundle for bundle in verified_bundles if not _has_all_test_groups(bundle)
+        ]
+    if not benchmark_bundles:
         raise SystemExit("No eligible problems found for splitting.")
-    ids = sorted(bundle.spec.id for bundle in bundles)
+    ids = sorted(bundle.spec.id for bundle in benchmark_bundles)
     rng = random.Random(args.seed)
     rng.shuffle(ids)
     split_ids = split_problem_ids(ids, args.train_ratio, args.dev_ratio)
+    split_ids["train"] = sorted(
+        [*split_ids["train"], *(bundle.spec.id for bundle in training_only_bundles)]
+    )
     source_files = {path.stem: path for path in source.glob("*.json") if not path.name.startswith("_")}
 
     for split_name, problem_ids in split_ids.items():
@@ -73,6 +81,9 @@ def main() -> None:
                     "seed": args.seed,
                     "problem_count": len(problem_ids),
                     "problem_id_fingerprint": fingerprint_problem_ids(problem_ids),
+                    "training_only_count": (
+                        len(training_only_bundles) if split_name == "train" else 0
+                    ),
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -88,9 +99,10 @@ def main() -> None:
         "source": str(source.resolve()),
         "seed": args.seed,
         "verified_only": not args.include_unverified,
-        "require_all_test_groups": not args.allow_missing_test_groups,
+        "require_all_test_groups_for_dev_test": not args.allow_missing_test_groups,
         "excluded_unverified": len(all_bundles) - len(verified_bundles),
-        "excluded_missing_test_groups": len(verified_bundles) - len(bundles),
+        "benchmark_eligible": len(benchmark_bundles),
+        "training_only_missing_test_groups": len(training_only_bundles),
         "ratios": {
             "train": args.train_ratio,
             "dev": args.dev_ratio,

@@ -169,6 +169,8 @@ def _split_cases(
     total = len(cases)
     if total >= 3 and max_reward > 0 and max_eval > 0:
         visible_count = min(max_visible, total - 2)
+    elif total == 2 and max_reward > 0:
+        visible_count = 1
     else:
         visible_count = min(max_visible, total)
     visible = _numbered(cases[:visible_count], "visible")
