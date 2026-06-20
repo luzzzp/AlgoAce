@@ -31,6 +31,9 @@ def main() -> None:
         help="Override epochs for a short smoke run when greater than zero.",
     )
     parser.add_argument("--learning-rate", type=float, default=2e-4)
+    parser.add_argument("--warmup-ratio", type=float, default=0.0)
+    parser.add_argument("--save-steps", type=int, default=200)
+    parser.add_argument("--save-total-limit", type=int, default=3)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--resume-from-checkpoint", action="store_true")
     args = parser.parse_args()
@@ -134,11 +137,12 @@ def main() -> None:
         per_device_train_batch_size=1,
         gradient_accumulation_steps=8,
         learning_rate=args.learning_rate,
+        warmup_ratio=args.warmup_ratio,
         num_train_epochs=args.epochs,
         max_steps=args.max_steps,
         logging_steps=10,
-        save_steps=200,
-        save_total_limit=3,
+        save_steps=args.save_steps,
+        save_total_limit=args.save_total_limit,
         seed=args.seed,
         bf16=bf16,
         fp16=bool(torch.cuda.is_available() and not bf16),
@@ -170,6 +174,11 @@ def main() -> None:
                 "max_prompt_chars": args.max_prompt_chars,
                 "max_completion_chars": args.max_completion_chars,
                 "max_steps": args.max_steps,
+                "epochs": args.epochs,
+                "learning_rate": args.learning_rate,
+                "warmup_ratio": args.warmup_ratio,
+                "save_steps": args.save_steps,
+                "save_total_limit": args.save_total_limit,
                 "loss_scope": "assistant_code_only",
             },
             indent=2,

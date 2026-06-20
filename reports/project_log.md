@@ -51,3 +51,5 @@
 - Base verified success rate 为 22%，SFT 为 12%；visible/reward/eval pass rate 均下降。
 - 两者 syntax error rate 均为 1%、runtime error rate 均为 11%，说明退化主要来自算法语义而非输出格式。
 - 暂停 GRPO，新增逐题报告对比，统计 Base-only/SFT-only 转移、IO 模式差异、失败原因和代码长度，避免直接在退化 checkpoint 上继续强化学习。
+- 配对结果为 Base-only 11 题、SFT-only 1 题；SFT 输出代码中位长度从 502.5 降至 235，stdin 与 callable 均退化。
+- 下一轮采用 1 epoch、`5e-5` 学习率、3% warmup，并保留多个 checkpoint 评测学习曲线，控制变量验证是否为更新过强。

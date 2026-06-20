@@ -134,6 +134,9 @@ python training/sft_train.py \
   --max-completion-chars 50000 \
   --epochs 2 \
   --learning-rate 2e-4 \
+  --warmup-ratio 0.03 \
+  --save-steps 250 \
+  --save-total-limit 10 \
   --seed 42
 ```
 
