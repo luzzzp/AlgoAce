@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-import inspect
+import json
 from pathlib import Path
 import sys
 
@@ -18,7 +18,14 @@ def main() -> None:
     parser.add_argument("--dataset", required=True)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--max-seq-length", type=int, default=4096)
+    parser.add_argument("--min-prompt-tokens", type=int, default=512)
     parser.add_argument("--epochs", type=float, default=2.0)
+    parser.add_argument(
+        "--max-steps",
+        type=int,
+        default=-1,
+        help="Override epochs for a short smoke run when greater than zero.",
+    )
     parser.add_argument("--learning-rate", type=float, default=2e-4)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--resume-from-checkpoint", action="store_true")
@@ -26,99 +33,181 @@ def main() -> None:
 
     try:
         from datasets import load_dataset
-        from peft import LoraConfig
-        from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-        from trl import SFTConfig, SFTTrainer
+        from peft import (
+            LoraConfig,
+            get_peft_model,
+            prepare_model_for_kbit_training,
+        )
+        import torch
+        from transformers import (
+            AutoModelForCausalLM,
+            AutoTokenizer,
+            BitsAndBytesConfig,
+            DataCollatorForSeq2Seq,
+            Trainer,
+            TrainingArguments,
+            set_seed,
+        )
     except ImportError as exc:
         raise SystemExit("Install requirements-train.txt before SFT.") from exc
 
-    from transformers import set_seed
+    if args.min_prompt_tokens < 1 or args.min_prompt_tokens >= args.max_seq_length:
+        raise SystemExit("--min-prompt-tokens must be between 1 and max-seq-length - 1.")
 
     set_seed(args.seed)
-    dataset = load_dataset("json", data_files=args.dataset, split="train").map(
-        lambda row: {"text": _format(row)}
-    )
     tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    raw_dataset = load_dataset("json", data_files=args.dataset, split="train")
+    initial_records = len(raw_dataset)
+    max_completion_tokens = args.max_seq_length - args.min_prompt_tokens
+    dataset = raw_dataset.filter(
+        lambda row: _completion_token_count(row, tokenizer) <= max_completion_tokens,
+        desc="Drop targets that cannot preserve the minimum prompt budget",
+    )
+    dropped_records = initial_records - len(dataset)
+    if len(dataset) == 0:
+        raise SystemExit("No SFT records remain after target-length filtering.")
+    dataset = dataset.map(
+        lambda row: _tokenize_record(row, tokenizer, args.max_seq_length),
+        remove_columns=dataset.column_names,
+        desc="Tokenize prompts while masking non-code tokens",
+    )
+
+    quantization = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_use_double_quant=True,
+        bnb_4bit_compute_dtype=torch.bfloat16,
+    )
     model = AutoModelForCausalLM.from_pretrained(
         args.model,
-        quantization_config=BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_quant_type="nf4",
-        ),
+        quantization_config=quantization,
         device_map="auto",
         trust_remote_code=True,
     )
-    peft_config = LoraConfig(
-        r=16,
-        lora_alpha=32,
-        lora_dropout=0.05,
-        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
-        task_type="CAUSAL_LM",
+    model.config.use_cache = False
+    model = prepare_model_for_kbit_training(model)
+    model = get_peft_model(
+        model,
+        LoraConfig(
+            r=16,
+            lora_alpha=32,
+            lora_dropout=0.05,
+            target_modules=[
+                "q_proj",
+                "k_proj",
+                "v_proj",
+                "o_proj",
+                "gate_proj",
+                "up_proj",
+                "down_proj",
+            ],
+            task_type="CAUSAL_LM",
+        ),
     )
-    config = _config(
-        SFTConfig,
-        args.output_dir,
-        args.max_seq_length,
-        args.epochs,
-        args.learning_rate,
-        args.seed,
+
+    bf16 = bool(torch.cuda.is_available() and torch.cuda.is_bf16_supported())
+    training_args = TrainingArguments(
+        output_dir=args.output_dir,
+        per_device_train_batch_size=1,
+        gradient_accumulation_steps=8,
+        learning_rate=args.learning_rate,
+        num_train_epochs=args.epochs,
+        max_steps=args.max_steps,
+        logging_steps=10,
+        save_steps=200,
+        save_total_limit=3,
+        seed=args.seed,
+        bf16=bf16,
+        fp16=bool(torch.cuda.is_available() and not bf16),
+        gradient_checkpointing=True,
+        optim="paged_adamw_8bit",
+        report_to="none",
     )
-    trainer = SFTTrainer(
-        **_trainer_kwargs(
-            SFTTrainer,
-            model,
-            config,
-            dataset,
-            tokenizer,
-            peft_config,
+    trainer = Trainer(
+        model=model,
+        args=training_args,
+        train_dataset=dataset,
+        data_collator=DataCollatorForSeq2Seq(
+            tokenizer=tokenizer,
+            label_pad_token_id=-100,
+            pad_to_multiple_of=8,
+        ),
+    )
+    print(
+        json.dumps(
+            {
+                "stage": "sft_preflight",
+                "input_records": initial_records,
+                "training_records": len(dataset),
+                "dropped_overlong_targets": dropped_records,
+                "max_seq_length": args.max_seq_length,
+                "min_prompt_tokens": args.min_prompt_tokens,
+                "max_steps": args.max_steps,
+                "loss_scope": "assistant_code_only",
+            },
+            indent=2,
         )
     )
     trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
     trainer.save_model(args.output_dir)
+    tokenizer.save_pretrained(args.output_dir)
 
 
-def _format(row: dict[str, str]) -> str:
-    return (
-        f"<|im_start|>system\n{SYSTEM_PROMPT}<|im_end|>\n"
-        f"<|im_start|>user\n{row['instruction']}\n\n{row['input']}<|im_end|>\n"
-        f"<|im_start|>assistant\n{row['output']}<|im_end|>"
+def _completion_token_count(row: dict[str, str], tokenizer) -> int:
+    return len(_completion_ids(row, tokenizer))
+
+
+def _tokenize_record(
+    row: dict[str, str],
+    tokenizer,
+    max_length: int,
+) -> dict[str, list[int]]:
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {
+            "role": "user",
+            "content": f"{row['instruction']}\n\n{row['input']}",
+        },
+    ]
+    prompt_text = tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True,
     )
+    prompt_ids = tokenizer(prompt_text, add_special_tokens=False)["input_ids"]
+    return _pack_token_ids(prompt_ids, _completion_ids(row, tokenizer), max_length)
 
 
-def _config(cls, output_dir: str, max_length: int, epochs: float, learning_rate: float, seed: int):
-    signature = inspect.signature(cls)
-    kwargs = {
-        "output_dir": output_dir,
-        "per_device_train_batch_size": 1,
-        "gradient_accumulation_steps": 8,
-        "learning_rate": learning_rate,
-        "num_train_epochs": epochs,
-        "logging_steps": 10,
-        "save_steps": 200,
-        "seed": seed,
+def _completion_ids(row: dict[str, str], tokenizer) -> list[int]:
+    ids = tokenizer(str(row["output"]), add_special_tokens=False)["input_ids"]
+    if tokenizer.eos_token_id is not None:
+        ids = [*ids, tokenizer.eos_token_id]
+    return ids
+
+
+def _pack_token_ids(
+    prompt_ids: list[int],
+    completion_ids: list[int],
+    max_length: int,
+) -> dict[str, list[int]]:
+    if not completion_ids:
+        raise ValueError("Completion must contain at least one token.")
+    if len(completion_ids) >= max_length:
+        raise ValueError("Completion does not fit in max_length.")
+    prompt_budget = max_length - len(completion_ids)
+    if len(prompt_ids) > prompt_budget:
+        head = max(1, int(prompt_budget * 0.75))
+        tail = prompt_budget - head
+        prompt_ids = prompt_ids[:head] + (prompt_ids[-tail:] if tail else [])
+    input_ids = [*prompt_ids, *completion_ids]
+    return {
+        "input_ids": input_ids,
+        "attention_mask": [1] * len(input_ids),
+        "labels": [-100] * len(prompt_ids) + list(completion_ids),
     }
-    if "max_seq_length" in signature.parameters:
-        kwargs["max_seq_length"] = max_length
-    elif "max_length" in signature.parameters:
-        kwargs["max_length"] = max_length
-    if "dataset_text_field" in signature.parameters:
-        kwargs["dataset_text_field"] = "text"
-    return cls(**kwargs)
-
-
-def _trainer_kwargs(cls, model, config, dataset, tokenizer, peft_config):
-    signature = inspect.signature(cls.__init__)
-    kwargs = {
-        "model": model,
-        "args": config,
-        "train_dataset": dataset,
-        "peft_config": peft_config,
-    }
-    if "tokenizer" in signature.parameters:
-        kwargs["tokenizer"] = tokenizer
-    elif "processing_class" in signature.parameters:
-        kwargs["processing_class"] = tokenizer
-    return kwargs
 
 
 if __name__ == "__main__":

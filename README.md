@@ -112,6 +112,12 @@ python scripts/make_grpo_prompts.py \
   --out /root/autodl-tmp/algoace/data/grpo_prompts_200.jsonl \
   --limit 200 \
   --resume
+
+python scripts/audit_training_data.py \
+  --problems /root/autodl-tmp/algoace/data/taco_split/train \
+  --dataset /root/autodl-tmp/algoace/data/train_code_sft.jsonl \
+  --out /root/autodl-tmp/algoace/reports/train_data_audit.json \
+  --strict
 ```
 
 ## QLoRA SFT
@@ -126,6 +132,8 @@ python training/sft_train.py \
   --learning-rate 2e-4 \
   --seed 42
 ```
+
+SFT 只对 assistant 的 Python 代码计算 loss。若题面过长，训练脚本会保留 prompt 首尾并完整保留代码；无法在上下文中为题面预留最小 token 数的超长代码样本会在 preflight 阶段报告并跳过。
 
 中断后追加 `--resume-from-checkpoint`。
 

@@ -35,3 +35,9 @@
 - 100 题中有 34 题原始测试少于 3 个，无法同时构造 visible/reward/eval，但 oracle 均已验证。
 - 这些题不进入 dev/test benchmark，但追加到 train 用于 Code SFT，避免浪费正确代码数据。
 - 只有具备完整三组测试的题参与严格 dev/test 划分；GRPO prompts 自动跳过缺少 reward tests 的训练题。
+
+## 2026-06-20：Code SFT 训练目标修正
+
+- SFT loss 只计算 assistant 输出的 Python 代码，不再训练模型复述 system prompt 和题面。
+- 长题面采用 token 级首尾保留策略，优先完整保留目标代码，避免右侧截断损坏训练答案。
+- 训练前新增数据审计，检查 verified oracle、代码块格式、Python 语法、重复样本、测试组完整性和数据指纹。
