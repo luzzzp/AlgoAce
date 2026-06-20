@@ -45,3 +45,9 @@
 - Oracle 候选改为首个全测试通过后立即停止，避免继续执行无用候选；编译阶段静默处理 `SyntaxWarning`，并支持中断时取消尚未开始的并行任务。
 - 正式数据审计发现重复题面和百万字符级异常样本；划分改为按规范化题面与调用签名去重，优先保留测试更完整的代表题，SFT 在 tokenizer 前过滤极端字符长度样本。
 - SFT preflight 默认剔除会触发 `SyntaxWarning` 的目标代码并报告数量，兼容旧 verifier 已生成的数据，无需重跑全量 oracle。
+
+## 2026-06-20：首轮 SFT Dev100 退化分析
+
+- Base verified success rate 为 22%，SFT 为 12%；visible/reward/eval pass rate 均下降。
+- 两者 syntax error rate 均为 1%、runtime error rate 均为 11%，说明退化主要来自算法语义而非输出格式。
+- 暂停 GRPO，新增逐题报告对比，统计 Base-only/SFT-only 转移、IO 模式差异、失败原因和代码长度，避免直接在退化 checkpoint 上继续强化学习。
