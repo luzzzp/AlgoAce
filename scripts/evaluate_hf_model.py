@@ -26,6 +26,8 @@ def main() -> None:
     parser.add_argument("--max-repair-turns", type=int, default=0)
     parser.add_argument("--candidates-per-turn", type=int, default=1)
     parser.add_argument("--temperature", type=float, default=0.0)
+    parser.add_argument("--top-p", type=float, default=0.95)
+    parser.add_argument("--reward-rerank", action="store_true")
     parser.add_argument("--load-in-4bit", action="store_true")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--split-name", default="test")
@@ -50,6 +52,8 @@ def main() -> None:
         "split_metadata": split_metadata,
         "seed": args.seed,
         "temperature": args.temperature,
+        "top_p": args.top_p,
+        "reward_rerank": args.reward_rerank,
         "max_repair_turns": args.max_repair_turns,
         "candidates_per_turn": args.candidates_per_turn,
     }
@@ -58,12 +62,14 @@ def main() -> None:
         args.model,
         adapter_path=args.adapter,
         temperature=args.temperature,
+        top_p=args.top_p,
         load_in_4bit=args.load_in_4bit,
     )
     solver = AlgoAceSolver(
         model,
         max_repair_turns=args.max_repair_turns,
         candidates_per_turn=args.candidates_per_turn,
+        rerank_with_reward_tests=args.reward_rerank,
     )
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)

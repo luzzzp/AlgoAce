@@ -19,6 +19,7 @@ class HuggingFaceCodeModel:
         adapter_path: str = "",
         max_new_tokens: int = 2048,
         temperature: float = 0.0,
+        top_p: float = 0.95,
         load_in_4bit: bool = False,
     ):
         try:
@@ -45,6 +46,7 @@ class HuggingFaceCodeModel:
         self.model.eval()
         self.max_new_tokens = max_new_tokens
         self.temperature = temperature
+        self.top_p = top_p
 
     def generate_codes(self, prompt: str, count: int = 1) -> list[ModelResponse]:
         messages = [
@@ -63,6 +65,7 @@ class HuggingFaceCodeModel:
         }
         if do_sample:
             kwargs["temperature"] = max(self.temperature, 0.05)
+            kwargs["top_p"] = self.top_p
         with self.torch.no_grad():
             output_ids = self.model.generate(**kwargs)
         responses = []

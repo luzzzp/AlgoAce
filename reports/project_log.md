@@ -56,3 +56,9 @@
 - SFT-v2 checkpoint-500 verified success rate 为 10%，最终模型为 12%，仍显著低于 Base 的 22%。
 - 降低学习率和训练轮数没有恢复正确率，因此排除“仅由更新过强导致”的解释；更可能是单参考代码的 token imitation 诱导短代码捷径，与执行正确率目标不一致。
 - SFT 作为负向消融保留，不再继续调参。后续从 Base 出发验证 best-of-N、上下文修复与执行奖励优化。
+
+## 2026-06-21：Base best-of-4 初始结果与候选重排
+
+- temperature 0.2 的 best-of-4 将 verified success rate 从 22% 提升至 26%，visible pass@4 为 31%。
+- pass@4 仅比 pass@1 visible success 27% 高 4 个百分点，说明候选高度相关，低温采样多样性不足。
+- 新增 `top_p` 采样参数与 `reward_rerank` 消融：reward tests 只用于内部候选排序，不向模型泄漏测试内容；eval tests 仍只运行最终候选一次。

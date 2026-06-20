@@ -23,11 +23,13 @@ class AlgoAceSolver:
         executor: PythonExecutor | None = None,
         max_repair_turns: int = 3,
         candidates_per_turn: int = 1,
+        rerank_with_reward_tests: bool = False,
     ):
         self.model = model
         self.executor = executor or PythonExecutor()
         self.max_repair_turns = max_repair_turns
         self.candidates_per_turn = candidates_per_turn
+        self.rerank_with_reward_tests = rerank_with_reward_tests
         self.context_builder = ContextBuilder()
         self.failure_analyzer = FailureAnalyzer()
 
@@ -49,6 +51,14 @@ class AlgoAceSolver:
         for turn in range(1, self.max_repair_turns + 2):
             candidates = self._generate_and_evaluate(problem, tests, packet)
             selected_index = max(range(len(candidates)), key=lambda index: candidates[index].score)
+            reward_result = None
+            if self.rerank_with_reward_tests and tests.reward_tests:
+                selected_index, reward_result = self._reward_rerank(
+                    problem,
+                    tests,
+                    candidates,
+                    selected_index,
+                )
             selected = candidates[selected_index]
             records.append(
                 AttemptRecord(
@@ -56,20 +66,21 @@ class AlgoAceSolver:
                     context_type=packet.context_type,
                     candidates=candidates,
                     selected_index=selected_index,
+                    reward_result=reward_result,
                 )
             )
 
             if selected.visible_result.all_passed:
-                reward_result = None
                 if tests.reward_tests:
-                    reward_result = self._evaluate(problem, selected.code, tests.reward_tests, "reward")
-                    records[-1] = AttemptRecord(
-                        turn=turn,
-                        context_type=packet.context_type,
-                        candidates=candidates,
-                        selected_index=selected_index,
-                        reward_result=reward_result,
-                    )
+                    if reward_result is None:
+                        reward_result = self._evaluate(problem, selected.code, tests.reward_tests, "reward")
+                        records[-1] = AttemptRecord(
+                            turn=turn,
+                            context_type=packet.context_type,
+                            candidates=candidates,
+                            selected_index=selected_index,
+                            reward_result=reward_result,
+                        )
                     if not reward_result.all_passed:
                         last_diagnostic = "Internal reward verification failed; cases are withheld."
                         packet = self.context_builder.hidden_review(
@@ -168,6 +179,40 @@ class AlgoAceSolver:
                 )
             )
         return candidates
+
+    def _reward_rerank(
+        self,
+        problem: ProblemSpec,
+        tests: TestSuite,
+        candidates: list[CandidateAttempt],
+        default_index: int,
+    ) -> tuple[int, ExecutionReport | None]:
+        eligible = [
+            index
+            for index, candidate in enumerate(candidates)
+            if candidate.visible_result.all_passed
+        ]
+        if not eligible:
+            return default_index, None
+        reward_results = {
+            index: self._evaluate(
+                problem,
+                candidates[index].code,
+                tests.reward_tests,
+                "reward",
+            )
+            for index in eligible
+        }
+        selected_index = max(
+            eligible,
+            key=lambda index: (
+                int(reward_results[index].all_passed),
+                reward_results[index].pass_rate,
+                candidates[index].score,
+                -index,
+            ),
+        )
+        return selected_index, reward_results[selected_index]
 
     def _evaluate(
         self,

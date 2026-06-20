@@ -27,6 +27,15 @@ class MultiCandidateModel:
         return [ModelResponse(f"```python\n{code}\n```", code) for code in codes[:count]]
 
 
+class RewardRerankModel:
+    def generate_codes(self, prompt: str, count: int = 1) -> list[ModelResponse]:
+        codes = [
+            "a,b=map(int,input().split())\nprint(5 if (a,b)==(2,3) else 0)",
+            "a,b=map(int,input().split())\nprint(a+b)",
+        ]
+        return [ModelResponse(f"```python\n{code}\n```", code) for code in codes[:count]]
+
+
 class SolverTest(unittest.TestCase):
     def setUp(self) -> None:
         self.problem = ProblemSpec(id="sum", statement="Read two integers and print their sum.")
@@ -63,6 +72,31 @@ class SolverTest(unittest.TestCase):
         self.assertEqual(result.status, SolveStatus.VERIFIED_SOLVED)
         self.assertEqual(result.attempt_records[1].context_type, "HIDDEN_REVIEW")
 
+    def test_reward_tests_can_rerank_visible_passing_candidates(self) -> None:
+        result = AlgoAceSolver(
+            RewardRerankModel(),
+            max_repair_turns=0,
+            candidates_per_turn=2,
+            rerank_with_reward_tests=True,
+        ).solve(self.problem, self.tests)
+
+        self.assertEqual(result.status, SolveStatus.VERIFIED_SOLVED)
+        self.assertEqual(result.attempt_records[0].selected_index, 1)
+        self.assertTrue(result.attempt_records[0].reward_result.all_passed)
+
+    def test_reward_rerank_failure_does_not_reach_eval_tests(self) -> None:
+        visible_only = "a,b=map(int,input().split())\nprint(5)"
+        result = AlgoAceSolver(
+            StaticSequenceModel([visible_only]),
+            max_repair_turns=0,
+            candidates_per_turn=1,
+            rerank_with_reward_tests=True,
+        ).solve(self.problem, self.tests)
+
+        self.assertEqual(result.status, SolveStatus.FAILED)
+        self.assertEqual(result.failure_reason, "INTERNAL_REWARD_FAILED")
+        self.assertIsNone(result.attempt_records[0].eval_result)
+
     def test_eval_failure_does_not_trigger_repair(self) -> None:
         visible_reward_only = (
             "a,b=map(int,input().split())\n"
@@ -79,4 +113,3 @@ class SolverTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
