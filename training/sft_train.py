@@ -10,6 +10,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from algoace.hf_model import SYSTEM_PROMPT
+from algoace.executor import has_syntax_warning
+from algoace.hf_model import extract_python_code
 
 
 def main() -> None:
@@ -64,6 +66,12 @@ def main() -> None:
     raw_dataset = load_dataset("json", data_files=args.dataset, split="train")
     initial_records = len(raw_dataset)
     dataset = raw_dataset.filter(
+        lambda row: not _row_has_syntax_warning(row),
+        desc="Drop Python targets with SyntaxWarning",
+    )
+    dropped_syntax_warnings = initial_records - len(dataset)
+    before_character_filter = len(dataset)
+    dataset = dataset.filter(
         lambda row: _within_char_limits(
             row,
             args.max_prompt_chars,
@@ -71,7 +79,7 @@ def main() -> None:
         ),
         desc="Drop pathological character-length outliers",
     )
-    dropped_character_outliers = initial_records - len(dataset)
+    dropped_character_outliers = before_character_filter - len(dataset)
     max_completion_tokens = args.max_seq_length - args.min_prompt_tokens
     before_token_filter = len(dataset)
     dataset = dataset.filter(
@@ -154,6 +162,7 @@ def main() -> None:
                 "stage": "sft_preflight",
                 "input_records": initial_records,
                 "training_records": len(dataset),
+                "dropped_syntax_warnings": dropped_syntax_warnings,
                 "dropped_character_outliers": dropped_character_outliers,
                 "dropped_overlong_targets": dropped_overlong_targets,
                 "max_seq_length": args.max_seq_length,
@@ -186,6 +195,11 @@ def _within_char_limits(
         or len(str(row.get("output") or "")) <= max_completion_chars
     )
     return prompt_ok and completion_ok
+
+
+def _row_has_syntax_warning(row: dict[str, str]) -> bool:
+    code = extract_python_code(str(row.get("output") or ""))
+    return bool(code and has_syntax_warning(code))
 
 
 def _tokenize_record(

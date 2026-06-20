@@ -53,6 +53,18 @@ class SftTrainTest(unittest.TestCase):
             )
         )
 
+    def test_syntax_warning_target_is_rejected(self) -> None:
+        self.assertTrue(
+            sft_train._row_has_syntax_warning(
+                {"output": "```python\nif 1 is 1:\n    pass\n```"}
+            )
+        )
+        self.assertFalse(
+            sft_train._row_has_syntax_warning(
+                {"output": "```python\nif 1 == 1:\n    pass\n```"}
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
