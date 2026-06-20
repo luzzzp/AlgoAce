@@ -9,13 +9,13 @@ from pathlib import Path
 import re
 import statistics
 import sys
-import warnings
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from algoace.schema import load_problems
+from algoace.executor import has_syntax_warning
 
 
 CODE_BLOCK = re.compile(r"^```python\s*\n(.*)\n```\s*$", re.DOTALL)
@@ -59,7 +59,7 @@ def audit(problems_path: Path, dataset_path: Path) -> dict:
         bool(code) and not _syntax_valid(code) for code in oracle_codes
     )
     oracle_syntax_warnings = sum(
-        bool(code) and _has_syntax_warning(code) for code in oracle_codes
+        bool(code) and has_syntax_warning(code) for code in oracle_codes
     )
     if invalid_oracle_syntax:
         problem_failures.append("invalid_oracle_syntax")
@@ -142,7 +142,7 @@ def _audit_jsonl(path: Path) -> dict:
             code = match.group(1)
             code_lengths.append(len(code))
             syntax_valid += int(_syntax_valid(code))
-            syntax_warnings += int(_has_syntax_warning(code))
+            syntax_warnings += int(has_syntax_warning(code))
     return {
         "path": str(path.resolve()),
         "records": records,
@@ -165,16 +165,6 @@ def _syntax_valid(code: str) -> bool:
     except SyntaxError:
         return False
     return True
-
-
-def _has_syntax_warning(code: str) -> bool:
-    try:
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always", SyntaxWarning)
-            compile(code, "<audit>", "exec")
-    except SyntaxError:
-        return False
-    return any(issubclass(item.category, SyntaxWarning) for item in caught)
 
 
 def _duplicate_count(values: list[str]) -> int:

@@ -67,7 +67,7 @@ class AuditTrainingDataTest(unittest.TestCase):
         code = "if 1 is 1:\n    pass"
 
         self.assertTrue(audit_training_data._syntax_valid(code))
-        self.assertTrue(audit_training_data._has_syntax_warning(code))
+        self.assertTrue(audit_training_data.has_syntax_warning(code))
 
 
 if __name__ == "__main__":

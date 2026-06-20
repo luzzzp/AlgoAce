@@ -95,6 +95,16 @@ class PythonExecutor:
         )
 
 
+def has_syntax_warning(code: str) -> bool:
+    try:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", SyntaxWarning)
+            compile(code, "<candidate>", "exec")
+    except SyntaxError:
+        return False
+    return any(issubclass(item.category, SyntaxWarning) for item in caught)
+
+
 _CALLABLE_RUNNER = r"""
 import json
 import runpy

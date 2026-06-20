@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from algoace.executor import PythonExecutor
+from algoace.executor import PythonExecutor, has_syntax_warning
 from algoace.schema import (
     OracleMetadata,
     OracleSolution,
@@ -143,29 +143,40 @@ def verify_bundle(
     tests = [*bundle.tests.visible_tests, *bundle.tests.reward_tests, *bundle.tests.eval_tests]
     entry_point = bundle.spec.entry_point if bundle.spec.io_mode == "callable" else ""
     attempts = []
-    updated_solutions = []
-    found = False
-    for index, solution in enumerate(bundle.oracle.solutions):
-        verified = False
-        if index < max_solutions and not found:
-            result = executor.evaluate(
-                solution.code,
-                tests,
-                bundle.spec.time_limit_sec,
-                "oracle",
-                entry_point,
-            )
-            verified = result.all_passed
-            attempts.append(
-                {
-                    "solution_index": index,
-                    "syntax_valid": result.syntax_valid,
-                    "pass_rate": result.pass_rate,
-                    "first_failed": _first_failed(result),
-                }
-            )
-            found = verified
-        updated_solutions.append(OracleSolution(solution.language, solution.code, verified))
+    selected_index: int | None = None
+    warning_fallback: int | None = None
+    for index, solution in enumerate(bundle.oracle.solutions[:max_solutions]):
+        result = executor.evaluate(
+            solution.code,
+            tests,
+            bundle.spec.time_limit_sec,
+            "oracle",
+            entry_point,
+        )
+        syntax_warning = has_syntax_warning(solution.code)
+        attempts.append(
+            {
+                "solution_index": index,
+                "syntax_valid": result.syntax_valid,
+                "syntax_warning": syntax_warning,
+                "pass_rate": result.pass_rate,
+                "first_failed": _first_failed(result),
+            }
+        )
+        if not result.all_passed:
+            continue
+        if not syntax_warning:
+            selected_index = index
+            break
+        if warning_fallback is None:
+            warning_fallback = index
+    if selected_index is None:
+        selected_index = warning_fallback
+    updated_solutions = [
+        OracleSolution(solution.language, solution.code, index == selected_index)
+        for index, solution in enumerate(bundle.oracle.solutions)
+    ]
+    found = selected_index is not None
     updated = ProblemBundle(
         spec=bundle.spec,
         tests=bundle.tests,

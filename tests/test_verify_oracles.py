@@ -52,6 +52,27 @@ class VerifyOraclesTest(unittest.TestCase):
         self.assertTrue(updated.oracle.solutions[0].verified)
         self.assertFalse(updated.oracle.solutions[1].verified)
 
+    def test_prefers_warning_free_verified_solution(self) -> None:
+        bundle = ProblemBundle(
+            ProblemSpec(id="p", statement="Solve."),
+            TestSuite(),
+            OracleMetadata(
+                [
+                    OracleSolution("python3", "if 1 is 1:\n    pass"),
+                    OracleSolution("python3", "print(2)"),
+                    OracleSolution("python3", "print(3)"),
+                ]
+            ),
+        )
+        executor = CountingExecutor()
+
+        updated, detail = verify_oracles.verify_bundle(bundle, executor, 3)
+
+        self.assertEqual(executor.calls, 2)
+        self.assertTrue(detail["attempts"][0]["syntax_warning"])
+        self.assertFalse(updated.oracle.solutions[0].verified)
+        self.assertTrue(updated.oracle.solutions[1].verified)
+
 
 if __name__ == "__main__":
     unittest.main()
