@@ -18,5 +18,11 @@
 | E7 | Base | SFT + GRPO | 1 | 0 | 0.0 |
 | E8 | Base | SFT + GRPO | 4 | 3 | 0.2 |
 
-主结果优先报告 `verified_success_rate`，并同时报告 `repair_gain`、运行错误率、超时率和平均尝试轮数。
+## 已验证阶段结论
 
+- Base Dev100 pass@1 verified success rate：22%。
+- SFT-v1 Dev100：12%。
+- SFT-v2 checkpoint-500：10%；SFT-v2 final：12%。
+- SFT 未进入后续主线 checkpoint；保留为“监督模仿目标与执行正确率不一致”的负向消融。
+
+主结果优先报告 `verified_success_rate`，并同时报告 `repair_gain`、运行错误率、超时率和平均尝试轮数。

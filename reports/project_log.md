@@ -53,3 +53,6 @@
 - 暂停 GRPO，新增逐题报告对比，统计 Base-only/SFT-only 转移、IO 模式差异、失败原因和代码长度，避免直接在退化 checkpoint 上继续强化学习。
 - 配对结果为 Base-only 11 题、SFT-only 1 题；SFT 输出代码中位长度从 502.5 降至 235，stdin 与 callable 均退化。
 - 下一轮采用 1 epoch、`5e-5` 学习率、3% warmup，并保留多个 checkpoint 评测学习曲线，控制变量验证是否为更新过强。
+- SFT-v2 checkpoint-500 verified success rate 为 10%，最终模型为 12%，仍显著低于 Base 的 22%。
+- 降低学习率和训练轮数没有恢复正确率，因此排除“仅由更新过强导致”的解释；更可能是单参考代码的 token imitation 诱导短代码捷径，与执行正确率目标不一致。
+- SFT 作为负向消融保留，不再继续调参。后续从 Base 出发验证 best-of-N、上下文修复与执行奖励优化。
