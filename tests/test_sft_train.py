@@ -37,6 +37,22 @@ class SftTrainTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             sft_train._pack_token_ids([1], [2, 3, 4], max_length=3)
 
+    def test_character_outliers_are_rejected_before_tokenization(self) -> None:
+        self.assertTrue(
+            sft_train._within_char_limits(
+                {"input": "short", "output": "code"},
+                10,
+                10,
+            )
+        )
+        self.assertFalse(
+            sft_train._within_char_limits(
+                {"input": "x" * 11, "output": "code"},
+                10,
+                10,
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

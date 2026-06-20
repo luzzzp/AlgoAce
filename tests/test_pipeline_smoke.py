@@ -64,6 +64,7 @@ class PipelineSmokeTest(unittest.TestCase):
 
             training_only = _problem()
             training_only["problem"]["id"] = "training_only"
+            training_only["problem"]["statement"] = "Add two values in a training-only task."
             training_only["tests"]["reward_tests"] = []
             training_only["tests"]["eval_tests"] = []
             training_only["oracle"]["solutions"][0]["verified"] = True

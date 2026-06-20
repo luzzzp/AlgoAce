@@ -19,6 +19,8 @@ def main() -> None:
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--max-seq-length", type=int, default=4096)
     parser.add_argument("--min-prompt-tokens", type=int, default=512)
+    parser.add_argument("--max-prompt-chars", type=int, default=100_000)
+    parser.add_argument("--max-completion-chars", type=int, default=50_000)
     parser.add_argument("--epochs", type=float, default=2.0)
     parser.add_argument(
         "--max-steps",
@@ -61,12 +63,22 @@ def main() -> None:
 
     raw_dataset = load_dataset("json", data_files=args.dataset, split="train")
     initial_records = len(raw_dataset)
-    max_completion_tokens = args.max_seq_length - args.min_prompt_tokens
     dataset = raw_dataset.filter(
+        lambda row: _within_char_limits(
+            row,
+            args.max_prompt_chars,
+            args.max_completion_chars,
+        ),
+        desc="Drop pathological character-length outliers",
+    )
+    dropped_character_outliers = initial_records - len(dataset)
+    max_completion_tokens = args.max_seq_length - args.min_prompt_tokens
+    before_token_filter = len(dataset)
+    dataset = dataset.filter(
         lambda row: _completion_token_count(row, tokenizer) <= max_completion_tokens,
         desc="Drop targets that cannot preserve the minimum prompt budget",
     )
-    dropped_records = initial_records - len(dataset)
+    dropped_overlong_targets = before_token_filter - len(dataset)
     if len(dataset) == 0:
         raise SystemExit("No SFT records remain after target-length filtering.")
     dataset = dataset.map(
@@ -142,9 +154,12 @@ def main() -> None:
                 "stage": "sft_preflight",
                 "input_records": initial_records,
                 "training_records": len(dataset),
-                "dropped_overlong_targets": dropped_records,
+                "dropped_character_outliers": dropped_character_outliers,
+                "dropped_overlong_targets": dropped_overlong_targets,
                 "max_seq_length": args.max_seq_length,
                 "min_prompt_tokens": args.min_prompt_tokens,
+                "max_prompt_chars": args.max_prompt_chars,
+                "max_completion_chars": args.max_completion_chars,
                 "max_steps": args.max_steps,
                 "loss_scope": "assistant_code_only",
             },
@@ -158,6 +173,19 @@ def main() -> None:
 
 def _completion_token_count(row: dict[str, str], tokenizer) -> int:
     return len(_completion_ids(row, tokenizer))
+
+
+def _within_char_limits(
+    row: dict[str, str],
+    max_prompt_chars: int,
+    max_completion_chars: int,
+) -> bool:
+    prompt_ok = max_prompt_chars <= 0 or len(str(row.get("input") or "")) <= max_prompt_chars
+    completion_ok = (
+        max_completion_chars <= 0
+        or len(str(row.get("output") or "")) <= max_completion_chars
+    )
+    return prompt_ok and completion_ok
 
 
 def _tokenize_record(

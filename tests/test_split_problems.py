@@ -63,6 +63,27 @@ class SplitProblemsTest(unittest.TestCase):
         self.assertNotIn("training-only", splits["dev"])
         self.assertNotIn("training-only", splits["test"])
 
+    def test_equivalent_problem_deduplication_prefers_complete_tests(self) -> None:
+        incomplete = ProblemBundle(
+            ProblemSpec(id="a", statement="  Add   two numbers. "),
+            TestSuite(visible_tests=[TestCase("1 2", "3")]),
+        )
+        complete = ProblemBundle(
+            ProblemSpec(id="b", statement="add two NUMBERS."),
+            TestSuite(
+                visible_tests=[TestCase("1 2", "3")],
+                reward_tests=[TestCase("2 3", "5")],
+                eval_tests=[TestCase("3 4", "7")],
+            ),
+        )
+
+        selected, removed = split_problems._deduplicate_equivalent_problems(
+            [incomplete, complete]
+        )
+
+        self.assertEqual([item.spec.id for item in selected], ["b"])
+        self.assertEqual(removed, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

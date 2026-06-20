@@ -97,6 +97,7 @@ python scripts/split_problems.py \
 ```
 
 同一道题完整进入一个 split。`test/` 不得参与 SFT、GRPO、阈值调整或 prompt 修改。
+划分前会按规范化题面、IO 模式和 callable entry point 去重，并优先保留测试更完整的代表题，防止等价题跨 train/dev/test 泄漏。
 划分脚本默认排除没有 verified oracle 的题。缺少完整测试组的 verified 题只追加到 train，不进入 dev/test，既保留 SFT 数据量，又确保正式 benchmark 的成功定义一致。
 每个 split 会写 `_split_metadata.json`；训练数据脚本检测到 dev/test 角色时会直接拒绝，防止误用测试集。
 
@@ -129,6 +130,8 @@ python training/sft_train.py \
   --dataset /root/autodl-tmp/algoace/data/train_code_sft.jsonl \
   --output-dir /root/autodl-tmp/algoace/outputs/qwen25-coder-7b-code-sft \
   --max-seq-length 4096 \
+  --max-prompt-chars 100000 \
+  --max-completion-chars 50000 \
   --epochs 2 \
   --learning-rate 2e-4 \
   --seed 42

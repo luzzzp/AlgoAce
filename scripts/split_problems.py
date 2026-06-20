@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import random
+import re
 import shutil
 import sys
 
@@ -31,10 +32,13 @@ def main() -> None:
     source = Path(args.problems)
     out_dir = Path(args.out_dir)
     all_bundles = load_problems(source)
-    verified_bundles = (
+    verified_candidates = (
         all_bundles
         if args.include_unverified
         else [bundle for bundle in all_bundles if bundle.oracle.best_verified()]
+    )
+    verified_bundles, deduplicated_equivalent = _deduplicate_equivalent_problems(
+        verified_candidates
     )
     if args.allow_missing_test_groups:
         benchmark_bundles = verified_bundles
@@ -100,7 +104,8 @@ def main() -> None:
         "seed": args.seed,
         "verified_only": not args.include_unverified,
         "require_all_test_groups_for_dev_test": not args.allow_missing_test_groups,
-        "excluded_unverified": len(all_bundles) - len(verified_bundles),
+        "excluded_unverified": len(all_bundles) - len(verified_candidates),
+        "deduplicated_equivalent_problems": deduplicated_equivalent,
         "benchmark_eligible": len(benchmark_bundles),
         "training_only_missing_test_groups": len(training_only_bundles),
         "ratios": {
@@ -156,6 +161,35 @@ def _has_all_test_groups(bundle) -> bool:
         and bundle.tests.reward_tests
         and bundle.tests.eval_tests
     )
+
+
+def _deduplicate_equivalent_problems(bundles):
+    groups = {}
+    for bundle in bundles:
+        groups.setdefault(_canonical_problem_key(bundle), []).append(bundle)
+    selected = [max(group, key=_representative_score) for group in groups.values()]
+    return sorted(selected, key=lambda item: item.spec.id), len(bundles) - len(selected)
+
+
+def _canonical_problem_key(bundle) -> str:
+    statement = re.sub(r"\s+", " ", bundle.spec.statement).strip().casefold()
+    if not statement:
+        return f"id:{bundle.spec.id}"
+    callable_signature = (
+        bundle.spec.entry_point.strip().casefold()
+        if bundle.spec.io_mode == "callable"
+        else ""
+    )
+    return f"{bundle.spec.io_mode}|{callable_signature}|{statement}"
+
+
+def _representative_score(bundle) -> tuple[int, int, str]:
+    test_count = (
+        len(bundle.tests.visible_tests)
+        + len(bundle.tests.reward_tests)
+        + len(bundle.tests.eval_tests)
+    )
+    return int(_has_all_test_groups(bundle)), test_count, bundle.spec.id
 
 
 if __name__ == "__main__":
