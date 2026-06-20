@@ -1,12 +1,21 @@
 from __future__ import annotations
 
 import unittest
+import warnings
 
 from algoace.executor import PythonExecutor
 from algoace.schema import TestCase
 
 
 class ExecutorTest(unittest.TestCase):
+    def test_syntax_warning_does_not_leak_to_process_log(self) -> None:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            report = PythonExecutor().evaluate("if 1 is 1:\n    pass", [])
+
+        self.assertTrue(report.syntax_valid)
+        self.assertEqual(caught, [])
+
     def test_accepts_correct_stdin_program(self) -> None:
         result = PythonExecutor().evaluate(
             "a,b=map(int,input().split())\nprint(a+b)",

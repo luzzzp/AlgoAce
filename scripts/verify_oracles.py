@@ -67,8 +67,10 @@ def main() -> None:
             else:
                 pending.append(bundle)
 
-        with ThreadPoolExecutor(max_workers=args.workers) as pool:
-            futures: dict[Future, ProblemBundle] = {
+        pool = ThreadPoolExecutor(max_workers=args.workers)
+        futures: dict[Future, ProblemBundle] = {}
+        try:
+            futures = {
                 pool.submit(
                     _verify_one,
                     bundle,
@@ -99,6 +101,18 @@ def main() -> None:
                         file=sys.stderr,
                         flush=True,
                     )
+        except KeyboardInterrupt:
+            for future in futures:
+                future.cancel()
+            pool.shutdown(wait=False, cancel_futures=True)
+            print(
+                "Oracle verification interrupted. Completed problem files are safe; rerun with --resume.",
+                file=sys.stderr,
+                flush=True,
+            )
+            raise
+        else:
+            pool.shutdown(wait=True)
     for manifest in Path(args.problems).glob("_*.json"):
         if manifest.name != "_failed.jsonl":
             shutil.copy2(manifest, out_dir / manifest.name)
@@ -133,7 +147,7 @@ def verify_bundle(
     found = False
     for index, solution in enumerate(bundle.oracle.solutions):
         verified = False
-        if index < max_solutions:
+        if index < max_solutions and not found:
             result = executor.evaluate(
                 solution.code,
                 tests,
@@ -150,7 +164,7 @@ def verify_bundle(
                     "first_failed": _first_failed(result),
                 }
             )
-            found = found or verified
+            found = verified
         updated_solutions.append(OracleSolution(solution.language, solution.code, verified))
     updated = ProblemBundle(
         spec=bundle.spec,

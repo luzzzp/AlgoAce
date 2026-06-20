@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import statistics
 import sys
+import warnings
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -57,6 +58,9 @@ def audit(problems_path: Path, dataset_path: Path) -> dict:
     invalid_oracle_syntax = sum(
         bool(code) and not _syntax_valid(code) for code in oracle_codes
     )
+    oracle_syntax_warnings = sum(
+        bool(code) and _has_syntax_warning(code) for code in oracle_codes
+    )
     if invalid_oracle_syntax:
         problem_failures.append("invalid_oracle_syntax")
 
@@ -90,6 +94,7 @@ def audit(problems_path: Path, dataset_path: Path) -> dict:
             "missing_reward_tests": sum(not item.tests.reward_tests for item in bundles),
             "missing_eval_tests": sum(not item.tests.eval_tests for item in bundles),
             "invalid_oracle_syntax": invalid_oracle_syntax,
+            "syntax_warning_records": oracle_syntax_warnings,
             "duplicate_statements": _duplicate_count(statements),
             "duplicate_oracle_codes": _duplicate_count(oracle_codes),
             "io_modes": dict(sorted(io_modes.items())),
@@ -106,6 +111,7 @@ def _audit_jsonl(path: Path) -> dict:
     invalid_schema = 0
     valid_blocks = 0
     syntax_valid = 0
+    syntax_warnings = 0
     inputs: list[str] = []
     outputs: list[str] = []
     input_lengths: list[int] = []
@@ -136,6 +142,7 @@ def _audit_jsonl(path: Path) -> dict:
             code = match.group(1)
             code_lengths.append(len(code))
             syntax_valid += int(_syntax_valid(code))
+            syntax_warnings += int(_has_syntax_warning(code))
     return {
         "path": str(path.resolve()),
         "records": records,
@@ -143,6 +150,7 @@ def _audit_jsonl(path: Path) -> dict:
         "invalid_schema_records": invalid_schema,
         "valid_code_block_records": valid_blocks,
         "syntax_valid_records": syntax_valid,
+        "syntax_warning_records": syntax_warnings,
         "duplicate_inputs": _duplicate_count(inputs),
         "duplicate_outputs": _duplicate_count(outputs),
         "input_chars": _length_stats(input_lengths),
@@ -157,6 +165,16 @@ def _syntax_valid(code: str) -> bool:
     except SyntaxError:
         return False
     return True
+
+
+def _has_syntax_warning(code: str) -> bool:
+    try:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", SyntaxWarning)
+            compile(code, "<audit>", "exec")
+    except SyntaxError:
+        return False
+    return any(issubclass(item.category, SyntaxWarning) for item in caught)
 
 
 def _duplicate_count(values: list[str]) -> int:

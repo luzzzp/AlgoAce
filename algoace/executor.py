@@ -4,6 +4,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import warnings
 
 from algoace.schema import ExecutionReport, ExecutionRun, TestCase, normalize_output
 
@@ -21,7 +22,9 @@ class PythonExecutor:
         entry_point: str = "",
     ) -> ExecutionReport:
         try:
-            compile(code, "<candidate>", "exec")
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", SyntaxWarning)
+                compile(code, "<candidate>", "exec")
         except SyntaxError as exc:
             return ExecutionReport(False, syntax_error=str(exc))
 

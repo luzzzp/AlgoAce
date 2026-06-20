@@ -63,6 +63,12 @@ class AuditTrainingDataTest(unittest.TestCase):
     def test_invalid_code_is_reported(self) -> None:
         self.assertFalse(audit_training_data._syntax_valid("def broken("))
 
+    def test_syntax_warning_is_counted_separately_from_invalid_syntax(self) -> None:
+        code = "if 1 is 1:\n    pass"
+
+        self.assertTrue(audit_training_data._syntax_valid(code))
+        self.assertTrue(audit_training_data._has_syntax_warning(code))
+
 
 if __name__ == "__main__":
     unittest.main()
