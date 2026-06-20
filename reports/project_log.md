@@ -41,3 +41,4 @@
 - SFT loss 只计算 assistant 输出的 Python 代码，不再训练模型复述 system prompt 和题面。
 - 长题面采用 token 级首尾保留策略，优先完整保留目标代码，避免右侧截断损坏训练答案。
 - 训练前新增数据审计，检查 verified oracle、代码块格式、Python 语法、重复样本、测试组完整性和数据指纹。
+- Oracle 验证新增题目级并行 worker，默认并行验证 8 道题，并保持逐题落盘和断点续跑。

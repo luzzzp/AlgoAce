@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 import json
 from pathlib import Path
 import shutil
@@ -26,19 +27,28 @@ def main() -> None:
     parser.add_argument("--problems", required=True)
     parser.add_argument("--out-dir", required=True)
     parser.add_argument("--max-solutions-per-problem", type=int, default=3)
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=8,
+        help="Number of problems verified concurrently. Each problem still runs its tests sequentially.",
+    )
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
+
+    if args.workers < 1:
+        raise SystemExit("--workers must be at least 1.")
 
     bundles = load_problems(args.problems)
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    executor = PythonExecutor()
     failed_path = out_dir / "_failed.jsonl"
     verified = 0
     failed = 0
     no_solution = 0
     processed_new = 0
     skipped_existing = 0
+    pending: list[ProblemBundle] = []
 
     failed_mode = "a" if args.resume else "w"
     with failed_path.open(failed_mode, encoding="utf-8") as failed_log:
@@ -46,21 +56,49 @@ def main() -> None:
             target = out_dir / f"{bundle.spec.id}.json"
             if args.resume and target.exists():
                 updated = load_problem(target)
-                detail = None
                 skipped_existing += 1
+                verified, failed, no_solution = _update_counts(
+                    updated,
+                    bundle,
+                    verified,
+                    failed,
+                    no_solution,
+                )
             else:
-                updated, detail = verify_bundle(bundle, executor, args.max_solutions_per_problem)
-                save_problem(updated, target)
+                pending.append(bundle)
+
+        with ThreadPoolExecutor(max_workers=args.workers) as pool:
+            futures: dict[Future, ProblemBundle] = {
+                pool.submit(
+                    _verify_one,
+                    bundle,
+                    args.max_solutions_per_problem,
+                ): bundle
+                for bundle in pending
+            }
+            for future in as_completed(futures):
+                bundle = futures[future]
+                updated, detail = future.result()
+                save_problem(updated, out_dir / f"{bundle.spec.id}.json")
                 processed_new += 1
-            if updated.oracle.best_verified():
-                verified += 1
-            elif not bundle.oracle.solutions:
-                no_solution += 1
-            else:
-                failed += 1
-                if detail is not None:
+                verified, failed, no_solution = _update_counts(
+                    updated,
+                    bundle,
+                    verified,
+                    failed,
+                    no_solution,
+                )
+                if not updated.oracle.best_verified() and bundle.oracle.solutions:
                     failed_log.write(json.dumps(detail, ensure_ascii=False) + "\n")
                     failed_log.flush()
+                completed = skipped_existing + processed_new
+                if processed_new == 1 or processed_new % 100 == 0 or completed == len(bundles):
+                    print(
+                        f"[{completed}/{len(bundles)}] verified={verified} failed={failed} ",
+                        f"no_solution={no_solution}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
     for manifest in Path(args.problems).glob("_*.json"):
         if manifest.name != "_failed.jsonl":
             shutil.copy2(manifest, out_dir / manifest.name)
@@ -73,6 +111,7 @@ def main() -> None:
         "no_solution": no_solution,
         "processed_new": processed_new,
         "skipped_existing": skipped_existing,
+        "workers": args.workers,
         "failed_log": "_failed.jsonl",
     }
     (out_dir / "_verify_manifest.json").write_text(
@@ -119,6 +158,26 @@ def verify_bundle(
         oracle=OracleMetadata(updated_solutions, bundle.oracle.source, bundle.oracle.url),
     )
     return updated, {"problem_id": bundle.spec.id, "verified": found, "attempts": attempts}
+
+
+def _verify_one(bundle: ProblemBundle, max_solutions: int) -> tuple[ProblemBundle, dict]:
+    return verify_bundle(bundle, PythonExecutor(), max_solutions)
+
+
+def _update_counts(
+    updated: ProblemBundle,
+    original: ProblemBundle,
+    verified: int,
+    failed: int,
+    no_solution: int,
+) -> tuple[int, int, int]:
+    if updated.oracle.best_verified():
+        verified += 1
+    elif not original.oracle.solutions:
+        no_solution += 1
+    else:
+        failed += 1
+    return verified, failed, no_solution
 
 
 def _first_failed(report) -> dict | None:

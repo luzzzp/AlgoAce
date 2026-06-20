@@ -80,6 +80,7 @@ python scripts/verify_oracles.py \
   --problems /root/autodl-tmp/algoace/data/taco_15000 \
   --out-dir /root/autodl-tmp/algoace/data/taco_15000_verified \
   --max-solutions-per-problem 3 \
+  --workers 8 \
   --resume
 ```
 
